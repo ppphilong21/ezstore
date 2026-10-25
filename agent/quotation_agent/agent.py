@@ -44,6 +44,7 @@ from .intent import (
     REQUIRED_FIELDS,
     Intent,
     args_for,
+    bare_number,
     bare_value,
     canonical_quotation_number,
     code_extract,
@@ -300,6 +301,20 @@ def route(ctx: Context, node_input: Any, turn_context: dict[str, Any]):
         intent = pending["intent"]
 
     merged = _merge_args(intent, llm, extracted, pending)
+
+    # 5) 回答追問時只打了值（「0.8」「八千」「史塔克工業」）：填進待補操作缺少的第一個欄位
+    if pending and intent and intent == pending.get("intent") and data_only:
+        for f in missing_fields(intent, merged):
+            if f in ("new_pricing_factor", "target_total_price"):
+                value = bare_number(message)
+                if value is not None:
+                    merged[f] = value
+                    break
+            elif f == "customer_name" and not extracted.get("quotation_number"):
+                name = message.strip(" 。，,「」『』\"'")
+                if name:
+                    merged[f] = name
+                    break
 
     if intent not in ACTION_INTENTS:
         known_q = merged.get("quotation_number")

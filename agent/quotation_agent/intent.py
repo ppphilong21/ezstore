@@ -231,6 +231,13 @@ def extract_customer_name(text: str) -> str | None:
     return None
 
 
+def bare_number(text: str) -> float | None:
+    """整句只有一個數字（例如回答追問「0.8」「八千」「1.2萬元」）時回傳該數字。"""
+    t = normalize(text).strip(" 。.!！")
+    t = re.sub(r"^(改為|改成|調整為|設為|就|是|為)", "", t).strip()
+    return parse_number(t) if t else None
+
+
 def bare_value(text: str) -> bool:
     """訊息是否只是補資料（只有報價單編號、數字或很短的名稱），沒有其他要求。"""
     t = normalize(text)

@@ -173,3 +173,20 @@ def test_app_name_and_respond_node():
     names = {n.name for n in agent_module.root_agent.graph.nodes}
     assert {"respond", "classify_intent", "route", "clarify", "off_topic"} <= names
     assert {a.__name__ for a in agent_module.ACTION_NODES} <= names
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first,answer,tool,args",
+    [
+        ("我要修改報價因子，報價單編號：QT-20260330-001", "0.8", "update_pricing_factor",
+         {"quotation_number": "QT-20260330-001", "new_pricing_factor": 0.8}),
+        ("我要修改報價單總價，報價單編號：QT-20260330-001", "八千", "adjust_total_price",
+         {"quotation_number": "QT-20260330-001", "target_total_price": 8000.0}),
+        ("我要查詢客戶的報價單清單", "史塔克工業", "list_customer_quotations", {"customer_name": "史塔克工業"}),
+    ],
+)
+async def test_bare_answer_fills_missing_field(chat: Chat, stub_mcp, first, answer, tool, args):
+    assert (await chat.send(first)).startswith("請提供")
+    await chat.send(answer)
+    assert stub_mcp == [(tool, args)]
