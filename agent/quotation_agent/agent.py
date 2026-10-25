@@ -97,6 +97,14 @@ intent 只能是下列其中一個：
 """
 
 
+# AI Studio free tier has low per-minute limits; eval runs several cases in parallel.
+# Back off and retry on 429 / 5xx instead of failing the case (≈1 min of retries in total).
+RETRY_OPTIONS = types.HttpRetryOptions(
+    attempts=6, initial_delay=2.0, max_delay=30.0, exp_base=2.0, jitter=1.0,
+    http_status_codes=[408, 429, 500, 502, 503, 504],
+)
+
+
 def _on_model_error(callback_context: Any, llm_request: Any, error: Exception) -> LlmResponse:
     """模型呼叫失敗（金鑰錯誤、額度用完…）時不讓整個 Workflow 崩潰，改由 route 回覆清楚的錯誤訊息。"""
     logger.warning("classify_intent model error: %s", error)
@@ -109,8 +117,7 @@ def _on_model_error(callback_context: Any, llm_request: Any, error: Exception) -
 def make_classifier(model: Any | None = None) -> LlmAgent:
     return LlmAgent(
         name="classify_intent",
-        model=model
-        or Gemini(model=MODEL, retry_options=types.HttpRetryOptions(attempts=3)),
+        model=model or Gemini(model=MODEL, retry_options=RETRY_OPTIONS),
         instruction=CLASSIFIER_INSTRUCTION,
         output_schema=Intent,
         generate_content_config=types.GenerateContentConfig(temperature=0),

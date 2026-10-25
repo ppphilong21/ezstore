@@ -2,12 +2,27 @@
 
 import os
 import threading
+import time
 
 from google import genai
 from google.genai import types
 from pydantic import BaseModel
 
 _local = threading.local()
+_lock = threading.Lock()
+_last = [0.0]
+_MIN_INTERVAL = float(os.environ.get("JUDGE_MIN_INTERVAL", "5"))
+_RETRY = types.HttpRetryOptions(attempts=6, initial_delay=2.0, max_delay=30.0,
+                                http_status_codes=[408, 429, 500, 502, 503, 504])
+
+
+def _throttle() -> None:
+    """Space out judge calls (AI Studio free tier has low per-minute limits)."""
+    with _lock:
+        wait = _last[0] + _MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last[0] = time.monotonic()
 
 
 class _Verdict(BaseModel):
@@ -27,7 +42,7 @@ def _client() -> genai.Client:
     client = getattr(_local, "client", None)
     if client is None:
         # AI Studio (GEMINI_API_KEY) or Gemini platform (ADC).
-        client = _local.client = genai.Client()
+        client = _local.client = genai.Client(http_options=types.HttpOptions(retry_options=_RETRY))
     return client
 
 
@@ -51,6 +66,7 @@ def evaluate(instance):
         prompt += f"Expected Answer (ground truth): {reference}\n"
     prompt += f"Full Agent Trace: {instance.get('agent_data', '')}\n"
 
+    _throttle()
     response = _client().models.generate_content(
         model=os.environ.get("AGENT_MODEL", "gemini-3.8-flash"),
         contents=prompt,

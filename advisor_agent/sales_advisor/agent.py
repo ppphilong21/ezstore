@@ -47,7 +47,14 @@ B. 報價 Agent（另一個 AI Agent，透過 A2A 協定呼叫）：ask_quotatio
 
 root_agent = LlmAgent(
     name="sales_advisor",
-    model=Gemini(model=MODEL, retry_options=types.HttpRetryOptions(attempts=3)),
+    model=Gemini(
+        model=MODEL,
+        # AI Studio free tier: back off and retry on 429 / 5xx instead of failing the turn.
+        retry_options=types.HttpRetryOptions(
+            attempts=6, initial_delay=2.0, max_delay=30.0,
+            http_status_codes=[408, 429, 500, 502, 503, 504],
+        ),
+    ),
     description="EZStore 業務顧問：依 OKF 知識庫檢查報價政策，並透過 A2A 請報價 Agent 執行報價單操作。",
     instruction=INSTRUCTION,
     tools=[okf_list, okf_search, okf_read, get_customer_profile, review_quotation, ask_quotation_agent],

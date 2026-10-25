@@ -1,0 +1,7 @@
+{
+  "_comment": "Not a real credential. agents-cli eval always builds a Google Cloud Storage client, which needs Application Default Credentials to exist even when every metric runs locally. Point GOOGLE_APPLICATION_CREDENTIALS here if you only have an AI Studio key (no gcloud).",
+  "type": "authorized_user",
+  "client_id": "placeholder.apps.googleusercontent.com",
+  "client_secret": "placeholder",
+  "refresh_token": "placeholder"
+}
