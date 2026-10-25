@@ -38,8 +38,10 @@ ezstore/
 ├── scripts/
 │   └── seed-test-data.sql      # Idempotent test dataset (TRUNCATE + INSERT)
 ├── .env.example                # GEMINI_API_KEY and agent settings (copy to .env)
-├── agent/                      # ★ LAB deliverable — not in this branch. Build it from agent-spec-prompt.md
-│                               #   (agents-cli scaffold → ADK 2.x graph Workflow → connect to mcp_server)
+├── agent/                      # ★ LAB deliverable: ADK 2.x graph Workflow quotation agent (built from agent-spec-prompt.md)
+│   ├── quotation_agent/        #   agent.py (Workflow), intent.py (Intent + code rules), mcp_client.py, messages.py, fast_api_app.py (+A2A)
+│   ├── tests/                  #   unit/, integration/, eval/ (datasets + eval_config.yaml)
+│   └── scripts/call_mcp.py     #   call one MCP tool directly (stage 4.1)
 ├── mcp_server/
 │   ├── Dockerfile
 │   ├── pyproject.toml           # mcp>=2.2, httpx (+ uv.lock)
@@ -254,69 +256,95 @@ profit_rate  = profit ÷ total_price
 
 ### AI Agent
 
-> **This branch (`workshop-start`) is the lab starting point.** The backend, frontend Chat UI, MCP Server and database are provided; the `agent/` service is what you build by feeding `agent-spec-prompt.md` to your AI coding tool. The description below is the target you are building toward.
-
-EZStore includes a natural-language quotation assistant built with Google ADK 2.x. The agent is a **graph Workflow**: only one node calls the LLM (intent classification); tool selection, argument passing, clarification and refusal are all deterministic program logic.
+EZStore includes a natural-language quotation assistant built with Google ADK 2.x (`agent/`, scaffolded with google-agents-cli). The agent is a **graph Workflow**: only one node calls the LLM (intent classification); tool selection, arguments, clarification and refusal are all deterministic program logic.
 
 **Architecture:**
 
 ```
-User → React Chat UI → nginx /agent-api → Agent (ADK FastAPI, port 8080) → MCP Server (port 8000) → Backend REST API
-                                               │                                  Streamable HTTP
-                                          Gemini 3.8 Flash                        (mcp Python SDK 2.x)
-                                        (AI Studio API key)
-
-Workflow graph (agent/quotation_agent/agent.py):
-
-  START → load_context → classify_intent (LLM, output_schema=Intent) → route
-            ├─ get_quotation / list_customer_quotations / duplicate_quotation
-            ├─ update_pricing_factor / adjust_total_price / convert_to_order    ← each calls one MCP tool
-            ├─ clarify     (missing fields → ask, keep state.pending_intent)
-            └─ off_topic   (fixed refusal, decided by code)
-          all → respond    (emit text + update state.chat_history)
+User → React Chat UI → nginx /agent-api → Agent (ADK FastAPI, agent:8080) → MCP Server (mcp-server:8000) → Backend REST API
+                                               │   │                            Streamable HTTP
+                                    Gemini 3.8 Flash  └─ /a2a/quotation_agent   (mcp Python SDK 2.x)
+                                  (AI Studio / Vertex)   A2A JSON-RPC for other agents
 ```
 
-Every user message re-runs the graph from `START`; cross-turn memory lives in session state (`chat_history`, `pending_intent`), so a user can answer a clarification question in the next message.
+**Workflow graph** (`agent/quotation_agent/agent.py`):
+
+```
+START → load_context ─(classify)→ classify_intent (LLM → Intent) → route ─┬→ get_quotation ────────────┐
+            │                                                              ├→ list_customer_quotations ─┤
+            │                                                              ├→ duplicate_quotation ──────┤
+            │                                                              ├→ update_pricing_factor ────┤  each calls
+            │                                                              ├→ adjust_total_price ───────┤  ONE MCP tool
+            │                                                              ├→ convert_to_order ─────────┼→ respond
+            │                                                              ├→ clarify   (ask, keep state.pending_intent)
+            │                                                              ├→ off_topic (fixed refusal, decided by code)
+            │                                                              └─(direct)  invalid value / model error
+            └─(direct) no model credentials ─────────────────────────────────────────────────────→ respond
+```
+
+| Node | Kind | What it does |
+|---|---|---|
+| `load_context` | code | Current message + last 6 messages + `state.pending_intent` (rebuilt from history when state is empty, e.g. in eval). Short-circuits to `respond` when no credentials are configured. |
+| `classify_intent` | **LLM** (`LlmAgent`, `output_schema=Intent`, temperature 0) | Natural language → `{intent, quotation_number, customer_name, new_pricing_factor, target_total_price}` |
+| `route` | code | Guardrail regexes (prompt injection, customer/product/order CRUD, delete/publish quotation) → refuse; merges LLM fields with regex extraction (QT numbers, factors, totals, Chinese numerals) and pending args; missing field → `clarify`; invalid value (factor ≤ 0, total ≤ 0) → reply without calling any tool |
+| 6 action nodes | code | Each calls one MCP tool via `McpToolset.get_tools() → tool.run_async()` and records a function_call/function_response pair in the trace |
+| `clarify` / `off_topic` | code | Fixed replies: clarification starts with 「請提供」, refusal contains 「只能協助」 |
+| `respond` | code | The only node whose text is shown in the Chat UI (`nodeInfo.path` ends with `/respond@N`); strips any Markdown link to plain text |
 
 **Capabilities:**
 
-| Operation | Description |
-|-----------|-------------|
-| Query quotation | Look up quotation details by quotation number (uses `GET /quotations?quotation_number=`) |
-| List customer quotations | List all quotations for a given customer name |
-| Duplicate quotation | Create a new draft copy of a quotation |
-| Modify pricing factor | Duplicate first, then update the pricing factor on the copy |
-| Modify total price | Duplicate first, then binary-search the pricing factor (≤ 20 iterations) to reach a target total |
-| Convert to order | Create an order from the quotation's customer and items, linked via `quotation_id`; the quotation itself is untouched |
+| Operation | Example | Description |
+|-----------|---------|-------------|
+| Query quotation | 我要查詢報價單，報價單編號：QT-20260330-001 | Details and items by quotation number |
+| List customer quotations | 我要查詢客戶的報價單清單，客戶名稱：史塔克工業 | All quotations for a customer |
+| Duplicate quotation | 我要複製報價單，報價單編號：QT-20260330-001 | New draft copy |
+| Modify pricing factor | …報價因子改為 1.5 | Copy first, then change the factor on the copy |
+| Modify total price | …總價改為 8000 | Copy first, then bisect the factor (≤ 20 iterations) |
+| Convert to order | 我要將報價單轉訂單，報價單編號：QT-20260330-001 | New order linked via `quotation_id`; quotation untouched |
 
-**Key design:**
-- All modifications use **copy-on-write** — the original quotation is never changed
-- All responses include **plain-text system links** to the quotation/order detail pages
-- Off-topic requests are **refused by code**, missing fields trigger a **clarification turn**
-- Agent runs even without an API key (chat returns a clear error), so `docker compose up` never fails on a missing key
+**Key design:** copy-on-write (original never changes, the reply says 「未修改」) · plain-text links only · off-topic refused by code · missing data → clarification, next message continues · runs without an API key (chat replies with a clear configuration error).
 
-**Local development:**
+**Environment variables:**
+
+| Variable | Where | Default | Purpose |
+|---|---|---|---|
+| `GEMINI_API_KEY` | root `.env` (Compose) / `agent/.env` (local) | — | Google AI Studio key |
+| `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | same | `false`, —, `global` | Vertex AI instead of AI Studio (`gcloud auth application-default login`) |
+| `AGENT_MODEL` | same | `gemini-3.8-flash` | Model for `classify_intent` and the eval judge |
+| `MCP_URL` | Compose: fixed / local: `agent/.env` | `http://mcp-server:8000/mcp` (Compose), `http://localhost:8010/mcp` (local) | MCP Server endpoint |
+| `APP_URL` | Compose | `http://agent:8080` | URL advertised in the A2A agent card |
+| `ALLOW_ORIGINS` | root `.env` | `http://localhost:3000` | CORS for the ADK API |
+
+**Run with Docker (builds your local `agent/`):**
 
 ```bash
-# MCP Server (port 8010 to avoid clashing with other local services)
-cd mcp_server && uv sync
-BACKEND_URL=http://localhost:8080 MCP_PORT=8010 uv run python server.py
-
-# Agent (in another terminal)
-cd agent && cp .env.example .env    # fill GEMINI_API_KEY, set MCP_URL=http://localhost:8010/mcp
-                                    # or Vertex AI: GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT after `gcloud auth application-default login`
-uv sync --group dev
-agents-cli playground               # web UI
-agents-cli run "我要查詢報價單，報價單編號：QT-20260330-001"
-
-# Tests
-uv run pytest tests/unit -q                       # no LLM, no MCP
-MCP_URL=http://localhost:8010/mcp uv run pytest tests/integration -q   # offline graph tests (+ LLM tests when key is set)
-agents-cli eval run --dataset tests/eval/datasets/quotation-actions.json    # 6 action cases (creates data; reseed before rerun)
-agents-cli eval run --dataset tests/eval/datasets/quotation-guardrails.json # 2 refusals + 1 multi-turn clarification
+cp .env.example .env                     # put GEMINI_API_KEY=...
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+docker compose exec db psql -U ezstore -f /scripts/seed-test-data.sql
+docker compose ps                        # db, backend, mcp-server, agent, frontend running/healthy
+open http://localhost:3000/agent
 ```
 
-Trustworthiness evaluation labs for learners: [eval-lab-quick.md](eval-lab-quick.md) (25 min, in class) and [eval-lab.md](eval-lab.md) (60–90 min, full version).
+**Local development & tests:**
+
+```bash
+docker compose up -d db backend mcp-server            # MCP exposed on localhost:8010
+cd agent && cp .env.example .env                      # GEMINI_API_KEY, MCP_URL=http://localhost:8010/mcp
+uv sync --group dev --extra eval
+uv run python scripts/call_mcp.py get_quotation quotation_number=QT-20260330-001   # stage 4.1: call MCP directly
+agents-cli playground                                 # ADK web UI, app quotation_agent
+agents-cli run "我要查詢報價單，報價單編號：QT-20260330-001"
+
+uv run pytest tests/unit tests/integration -q         # no API key needed; integration uses the MCP server if reachable
+agents-cli eval run --dataset tests/eval/datasets/quotation-guardrails.json --config tests/eval/eval_config.yaml
+docker compose exec db psql -U ezstore -f /scripts/seed-test-data.sql   # reseed before the actions set
+agents-cli eval run --dataset tests/eval/datasets/quotation-actions.json --config tests/eval/eval_config.yaml
+cd .. && python3 scripts/grading/grade_agent.py --suite scripts/grading/student-suite.json   # 0–100 self-grading
+```
+
+Eval metrics (`agent/tests/eval/eval_config.yaml`): `custom_response_quality` (LLM judge 1–5), `link_present` (code 0/1), `refusal_or_action` (LLM judge 0/1), `agent_turn_count`. Design notes and how to add an operation: [agent/README.md](agent/README.md). Trustworthiness labs: [eval-lab-quick.md](eval-lab-quick.md) (25 min) and [eval-lab.md](eval-lab.md) (60–90 min).
+
+**A2A:** the same service exposes the agent over the Agent2Agent protocol — card at `http://agent:8080/a2a/quotation_agent/.well-known/agent-card.json` (one skill per operation), JSON-RPC at `/a2a/quotation_agent`.
 
 ### License
 
@@ -370,7 +398,9 @@ HTTP Request → Handler (Gin) → Service (business logic) → Repository (GORM
 | Page components | `frontend/src/pages/*.tsx` |
 | Shared components | `frontend/src/components/shared/*.tsx` |
 | Agent workflow graph | `agent/quotation_agent/agent.py` (`Workflow`, `Intent`, node functions) |
-| Agent prompts / fixed replies | `agent/quotation_agent/prompts.py` |
+| Agent intent schema + code rules | `agent/quotation_agent/intent.py` |
+| Agent fixed replies | `agent/quotation_agent/messages.py` |
+| Agent MCP client | `agent/quotation_agent/mcp_client.py` |
 | Agent FastAPI app | `agent/quotation_agent/fast_api_app.py` |
 | Agent eval | `agent/tests/eval/eval_config.yaml`, `agent/tests/eval/datasets/*.json` |
 | MCP Server (6 tools, mcp 2.x `MCPServer`) | `mcp_server/server.py` |
