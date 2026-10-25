@@ -346,6 +346,20 @@ Eval metrics (`agent/tests/eval/eval_config.yaml`): `custom_response_quality` (L
 
 **A2A:** the same service exposes the agent over the Agent2Agent protocol — card at `http://agent:8080/a2a/quotation_agent/.well-known/agent-card.json` (one skill per operation), JSON-RPC at `/a2a/quotation_agent`.
 
+### Agent 2: Sales Advisor (A2A + OKF)
+
+`advisor_agent/` is a second agent on the same system: an ADK `LlmAgent` that checks quotations against company policy.
+It reads the **OKF knowledge bundle** in `knowledge/ezstore-okf/` (policies, entities, metrics, processes, lessons learned)
+and delegates every quotation operation to the quotation agent over **A2A** (`http://agent:8080/a2a/quotation_agent`).
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.advisor.yml up -d --build
+open "http://localhost:8502/dev-ui/?app=sales_advisor"
+```
+
+Details: [advisor_agent/README.md](advisor_agent/README.md) · [knowledge/README.md](knowledge/README.md).
+
+
 ### License
 
 This project is licensed under the [MIT License](LICENSE).

@@ -346,6 +346,19 @@ Eval 指標（`agent/tests/eval/eval_config.yaml`）：`custom_response_quality`
 
 **A2A：** 同一個服務也以 Agent2Agent 協定對外提供 — agent card 在 `http://agent:8080/a2a/quotation_agent/.well-known/agent-card.json`（每個操作一個 skill），JSON-RPC 在 `/a2a/quotation_agent`。
 
+### Agent 2：業務顧問（A2A + OKF）
+
+`advisor_agent/` 是建立在同一套系統上的第二個 Agent：以 ADK `LlmAgent` 依公司政策檢查報價單。
+它讀取 `knowledge/ezstore-okf/` 的 **OKF 知識庫**（政策、實體、指標、流程、經驗教訓），所有報價單操作都透過 **A2A** 交給報價 Agent（`http://agent:8080/a2a/quotation_agent`）。
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.advisor.yml up -d --build
+open "http://localhost:8502/dev-ui/?app=sales_advisor"
+```
+
+詳見 [advisor_agent/README.md](advisor_agent/README.md)、[knowledge/README.md](knowledge/README.md)。
+
+
 ### 授權
 
 本專案採用 [MIT License](LICENSE) 開源授權。
