@@ -47,6 +47,25 @@ services:
       backend:
         condition: service_started
 
+  # ADK 報價單 Agent（Graph Workflow）。只在 Compose 內部網路開 8080：
+  # 前端 nginx 把 /agent-api/ 轉到 http://agent:8080/；/a2a/quotation_agent 給其他 Agent 用 A2A 呼叫。
+  # 沒有設定 GEMINI_API_KEY 時照常啟動，只有對話會回覆「尚未設定模型憑證」。
+  agent:
+    image: ghcr.io/cshliu77/ezstore/agent:latest
+    pull_policy: always
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-false}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+      AGENT_MODEL: ${AGENT_MODEL:-gemini-3.8-flash}
+      MCP_URL: http://mcp-server:8000/mcp
+      APP_URL: http://agent:8080
+      ALLOW_ORIGINS: ${ALLOW_ORIGINS:-http://localhost:3000}
+    expose:
+      - "8080"
+    depends_on:
+      - mcp-server
 
   frontend:
     image: ghcr.io/cshliu77/ezstore/frontend:latest
@@ -56,6 +75,7 @@ services:
     depends_on:
       - backend
       - mcp-server
+      - agent
 
   e2e:
     image: ghcr.io/cshliu77/ezstore/e2e:latest
