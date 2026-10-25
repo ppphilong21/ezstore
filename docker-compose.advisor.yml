@@ -1,0 +1,25 @@
+# Agent 2: EZStore sales advisor (OKF knowledge + A2A → quotation agent).
+# Start together with the main stack:
+#   docker compose -f docker-compose.yml -f docker-compose.build.yml -f docker-compose.advisor.yml up -d --build
+# Dev UI: http://localhost:8502/dev-ui/?app=sales_advisor
+services:
+  advisor:
+    image: ezstore-advisor:local
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: advisor_agent/Dockerfile
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-false}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+      AGENT_MODEL: ${AGENT_MODEL:-gemini-3.8-flash}
+      QUOTATION_AGENT_A2A_URL: http://agent:8080/a2a/quotation_agent
+      BACKEND_URL: http://backend:8080
+      OKF_BUNDLE: /app/knowledge/ezstore-okf
+    ports:
+      - "8502:8080"
+    depends_on:
+      - agent
+      - backend

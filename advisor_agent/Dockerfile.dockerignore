@@ -1,0 +1,7 @@
+# Build context is the repo root; only these folders are needed.
+*
+!advisor_agent/pyproject.toml
+!advisor_agent/uv.lock
+!advisor_agent/sales_advisor/**
+!knowledge/**
+**/__pycache__
