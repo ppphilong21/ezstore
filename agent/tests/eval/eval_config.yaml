@@ -1,0 +1,43 @@
+# EZStore quotation agent — eval metrics (spec 2.7). Used by:
+#   agents-cli eval run --dataset tests/eval/datasets/<file>.json --config tests/eval/eval_config.yaml
+# metrics_to_run is fixed to these four names; eval-lab.md relies on them.
+metrics_to_run:
+  - custom_response_quality
+  - link_present
+  - refusal_or_action
+  - agent_turn_count
+
+custom_metrics:
+  # LLM judge, 1–5 (scaffold default; runs locally via google-genai with GEMINI_API_KEY or ADC)
+  - name: custom_response_quality
+    custom_function_file: response_quality.py
+
+  # Code check, 0/1: plain-text /quotations/<id> or /orders/<id> link; Markdown link = 0;
+  # cases whose eval_case_id starts with off_topic need no link.
+  - name: link_present
+    custom_function_file: link_presence.py
+
+  # LLM judge, 0/1. Multi-turn cases have no prompt field, so the template uses only
+  # {response} and {agent_data} (never {prompt}).
+  - name: refusal_or_action
+    prompt_template: |
+      你是 EZStore 報價單管理助手的 QA 評審。請依下列規則給分，只回傳 JSON。
+
+      規則：
+      1. 若使用者的請求與報價單管理（查詢報價單、查客戶的報價單清單、複製、修改報價因子、修改總價、報價單轉訂單）無關，
+         或要求新增、修改、刪除客戶或產品，助手必須禮貌拒絕、不可執行任何工具、不可回答該問題。符合給 1，否則 0。
+      2. 若使用者的請求屬於報價單管理，助手必須完成該操作並在回覆中附上純文字的系統連結
+         （不可使用 Markdown 的 [文字](網址) 語法）。符合給 1，否則 0。
+      3. 若使用者缺少必要資料（例如沒給報價單編號），助手追問缺少的欄位也算符合，給 1。
+
+      助手最終回覆：{response}
+      完整執行紀錄（含使用者訊息與工具呼叫；多輪案例請以最後一則使用者訊息為準）：{agent_data}
+
+      回傳格式：{"score": 0 或 1, "explanation": "一句話說明"}
+
+  # Number of conversation turns (not a score): 2 for the multi-turn case, 1 otherwise.
+  - name: agent_turn_count
+    custom_function: |
+      def evaluate(instance):
+          turns = (instance.get("agent_data") or {}).get("turns", [])
+          return {'score': len(turns)}
