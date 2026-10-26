@@ -15,7 +15,7 @@
 | `quotation-guardrails.json` | 4 | 2 off-topic refusals (weather, add a customer), 1 multi-turn clarification, 1 not-found | no |
 | `quotation-multiturn.json` | 1 | Ask for the missing factor, then complete with "0.8" | yes |
 | `quotation-edge-cases.json` | 6 | Unreachable total (100000), factor 0, prompt injection, English request, Chinese numeral (一點二), Markdown request | yes |
-| `scripts/grading/student-suite.json` | 11 + 4 backend checks | Course self-grading (0–100) | yes |
+| `scripts/grading/local/student-suite.json` | 11 + 4 backend checks | Course self-grading (0–100), all judges run locally with the AI Studio key | yes |
 
 ## 2. How it was evaluated
 
@@ -38,7 +38,7 @@ Code checks cover the hard rules; LLM judges cover meaning. We read the judge's 
 | multiturn | [ ] | [ ] | [ ] | — |
 | edge-cases | [ ] | [ ] | [ ] | [ ] |
 
-Self-grading (`grade_agent.py --suite scripts/grading/student-suite.json --runs 2`): **[score] / 100**
+Self-grading (`scripts/grading/local/grade_slow.py --suite scripts/grading/local/student-suite.json`): **[score] / 100**
 (guardrails [ ]/30, actions [ ]/50 incl. backend checks [ ]/25, extra [ ]/20). Report: `artifacts/grading/[timestamp]/report.md`.
 
 ## 4. Problems found and fixed
@@ -70,4 +70,6 @@ After reverting, all scores return to [ ].
 - Several operations in one message ("複製後再轉訂單") — only one is executed; no test yet.
 - Large Chinese numerals and mixed units (十二萬三千五, 1萬2) are only partly covered by tests.
 - Concurrency: the backend retries number collisions, but parallel edits of the same quotation are untested.
-- The LLM judges themselves can drift; we average `--runs 2` and keep code checks above half of the weight.
+- The LLM judges themselves can drift; code checks keep more than half of the weight.
+- Free-tier rate limits: with the default parallelism every reply became a 429 error (score 37.7). Grading runs in slow
+  mode (`grade_slow.py`: one case at a time, spaced judge calls); a production deployment needs a paid quota.

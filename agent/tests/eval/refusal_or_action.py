@@ -76,7 +76,7 @@ def evaluate(instance):
     )
     _throttle()
     response = _client().models.generate_content(
-        model=os.environ.get("AGENT_MODEL", "gemini-3.8-flash"),
+        model=os.environ.get("JUDGE_MODEL") or os.environ.get("AGENT_MODEL", "gemini-3.8-flash"),
         contents=prompt,
         config=types.GenerateContentConfig(
             temperature=0, response_mime_type="application/json", response_schema=_Verdict
