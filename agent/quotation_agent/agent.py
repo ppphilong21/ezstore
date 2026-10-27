@@ -27,6 +27,7 @@ import re
 import uuid
 from typing import Any
 
+from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.agents.context import Context
 from google.adk.apps import App
@@ -59,6 +60,9 @@ from .mcp_client import call_tool
 logger = logging.getLogger(__name__)
 
 APP_NAME = "quotation_agent"
+# Load agent/.env before reading AGENT_MODEL: the package is imported (via fast_api_app → quotation_agent)
+# before fast_api_app calls load_dotenv(), so a model set only in .env would otherwise be ignored.
+load_dotenv()
 MODEL = os.getenv("AGENT_MODEL", "gemini-3.8-flash")
 HISTORY_MESSAGES = 6
 
