@@ -35,7 +35,8 @@ python3 scripts/grading/local/grade_slow.py --suite scripts/grading/local/studen
 # one group at a time if needed:  ... --only guardrails   /  --only actions  /  --only extra
 ```
 
-Optional: set `JUDGE_MODEL` in `agent/.env` to another model so the judges use a separate quota.
+Optional: set `JUDGE_MODEL` in `agent/.env` to another model so the judges use a separate quota. If that model's daily
+limit is below the ~22 judge calls of one run, split them: `REFUSAL_JUDGE_MODEL` and `QUALITY_JUDGE_MODEL` (about 11 each).
 A daily quota (`...PerDay...` in the 429 details) is not fixed by going slower: wait for the reset,
 or use a key from a new Google Cloud project.
 
