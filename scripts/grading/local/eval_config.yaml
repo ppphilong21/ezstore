@@ -1,0 +1,25 @@
+# Local-judge variant of ../eval_config.yaml for students who only have an AI Studio key.
+# Same four metrics and the same refusal_or_action rules (1–6), but every metric runs in-process
+# with GEMINI_API_KEY instead of the Gemini platform Eval Service (which needs a GCP project + ADC).
+# custom_function_file paths are relative to this file.
+metrics_to_run:
+  - custom_response_quality
+  - link_present
+  - refusal_or_action
+  - agent_turn_count
+
+custom_metrics:
+  - name: custom_response_quality
+    custom_function_file: response_quality.py
+
+  - name: link_present
+    custom_function_file: ../link_presence.py
+
+  - name: refusal_or_action
+    custom_function_file: refusal_or_action.py
+
+  - name: agent_turn_count
+    custom_function: |
+      def evaluate(instance):
+          turns = (instance.get("agent_data") or {}).get("turns", [])
+          return {'score': len(turns)}
